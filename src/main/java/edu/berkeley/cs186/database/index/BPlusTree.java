@@ -147,7 +147,8 @@ public class BPlusTree {
 
         // TODO(proj2): implement
 
-        return Optional.empty();
+        // return Optional.empty();
+        return root.get(key).getKey(key);
     }
 
     /**
@@ -203,7 +204,10 @@ public class BPlusTree {
 
         // TODO(proj2): Return a BPlusTreeIterator.
 
-        return Collections.emptyIterator();
+       // return Collections.emptyIterator();
+        LeafNode leaf = root.getLeftmostLeaf();
+        return new BPlusTreeIterator(leaf, leaf.scanAll());
+
     }
 
     /**
@@ -236,7 +240,9 @@ public class BPlusTree {
 
         // TODO(proj2): Return a BPlusTreeIterator.
 
-        return Collections.emptyIterator();
+//        return Collections.emptyIterator();
+        LeafNode rootLeaf = root.get(key);
+        return new BPlusTreeIterator(rootLeaf, rootLeaf.scanGreaterEqual(key));
     }
 
     /**
@@ -258,7 +264,22 @@ public class BPlusTree {
         // Use the provided updateRoot() helper method to change
         // the tree's root if the old root splits.
 
-        return;
+
+        Optional<Pair<DataBox, Long>> o = root.put(key, rid);
+
+        // 如果不需要分裂就直接返回
+        if (!o.isPresent()) {
+            return;
+        }
+
+        // 下面的分裂逻辑
+        Pair<DataBox, Long> p = o.get();
+        List<DataBox> keys = new ArrayList<>();
+        keys.add(p.getFirst());
+        List<Long> children = new ArrayList<>();
+        children.add(root.getPage().getPageNum());
+        children.add(p.getSecond());
+        updateRoot(new InnerNode(metadata, bufferManager, keys, children, lockContext));
     }
 
     /**
@@ -270,11 +291,11 @@ public class BPlusTree {
      * be filled up to full and split in half exactly like in put.
      *
      * This method should raise an exception if the tree is not empty at time
-     * of bulk loading. Bulk loading is used when creating a new Index, so think 
-     * about what an "empty" tree should look like. If data does not meet the 
-     * preconditions (contains duplicates or not in order), the resulting 
-     * behavior is undefined. Undefined behavior means you can handle these 
-     * cases however you want (or not at all) and you are not required to 
+     * of bulk loading. Bulk loading is used when creating a new Index, so think
+     * about what an "empty" tree should look like. If data does not meet the
+     * preconditions (contains duplicates or not in order), the resulting
+     * behavior is undefined. Undefined behavior means you can handle these
+     * cases however you want (or not at all) and you are not required to
      * write any explicit checks.
      *
      * The behavior of this method should be similar to that of InnerNode's
@@ -310,7 +331,7 @@ public class BPlusTree {
 
         // TODO(proj2): implement
 
-        return;
+        root.remove(key);
     }
 
     // Helpers /////////////////////////////////////////////////////////////////
@@ -423,19 +444,42 @@ public class BPlusTree {
     // Iterator ////////////////////////////////////////////////////////////////
     private class BPlusTreeIterator implements Iterator<RecordId> {
         // TODO(proj2): Add whatever fields and constructors you want here.
+        // 定义迭代器和被迭代的对象
+        private Iterator<RecordId> iter;
+        private LeafNode leaf;
+
+        // 接收不同的scan
+        public BPlusTreeIterator() {
+            this(root.getLeftmostLeaf(), null);
+        }
+        public BPlusTreeIterator(LeafNode leaf, Iterator<RecordId> iter) {
+            this.leaf = leaf;
+            this.iter = iter == null ? leaf.scanAll() : iter;
+        }
 
         @Override
         public boolean hasNext() {
             // TODO(proj2): implement
 
-            return false;
+            // return false;
+            return iter != null;
         }
 
         @Override
         public RecordId next() {
             // TODO(proj2): implement
 
-            throw new NoSuchElementException();
+            // throw new NoSuchElementException();
+            // 如果自身有,就直接next即可
+            if (iter.hasNext()) {
+                return iter.next();
+            }
+            // 如果自身没有了,看看兄弟结点有不有
+            else {
+                leaf = leaf.getRightSibling().get();
+                iter = leaf.scanAll();
+                return next();
+            }
         }
     }
 }

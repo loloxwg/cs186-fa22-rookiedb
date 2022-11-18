@@ -81,8 +81,10 @@ class InnerNode extends BPlusNode {
     @Override
     public LeafNode get(DataBox key) {
         // TODO(proj2): implement
+        int innerKey = numLessThanEqual(key, keys);
+        return getChild(innerKey).get(key);
 
-        return null;
+//        return null;
     }
 
     // See BPlusNode.getLeftmostLeaf.
@@ -91,7 +93,8 @@ class InnerNode extends BPlusNode {
         assert(children.size() > 0);
         // TODO(proj2): implement
 
-        return null;
+        // return null;
+        return getChild(0).getLeftmostLeaf();
     }
 
     // See BPlusNode.put.
@@ -99,7 +102,45 @@ class InnerNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
         // TODO(proj2): implement
 
-        return Optional.empty();
+        int index = numLessThanEqual(key, keys);
+        BPlusNode child = getChild(index);
+        Optional<Pair<DataBox, Long>> o = child.put(key, rid);
+
+        // 如果不需要分裂就直接跳出递归
+        if (!o.isPresent()) {
+            return Optional.empty();
+        }
+
+        // 下面开始分裂的逻辑
+        Pair<DataBox, Long> p = o.get();
+        keys.add(index, p.getFirst());
+        children.add(index + 1, p.getSecond());
+
+        // 获得阶数,溢出判断
+        int d = metadata.getOrder();
+        if (keys.size() <= 2 * d) {
+            sync();
+            return Optional.empty();
+        }
+
+        // 如果结点溢出则进行下面的分裂操作
+        assert(keys.size() == 2*d + 1);
+        List<DataBox> leftKeys = keys.subList(0, d);
+        DataBox middleKey = keys.get(d);
+        List<DataBox> rightKeys = keys.subList(d + 1, 2*d + 1);
+        List<Long> leftChildren = children.subList(0, d + 1);
+        List<Long> rightChildren = children.subList(d + 1, 2*d + 2);
+
+        // 创建内部结点的右结点
+        InnerNode n = new InnerNode(metadata, bufferManager, rightKeys, rightChildren, treeContext);
+
+        // 更新左结点
+        this.keys = leftKeys;
+        this.children = leftChildren;
+        sync();
+
+        // 返回右结点
+        return Optional.of(new Pair<>(middleKey, n.getPage().getPageNum()));
     }
 
     // See BPlusNode.bulkLoad.
@@ -116,7 +157,7 @@ class InnerNode extends BPlusNode {
     public void remove(DataBox key) {
         // TODO(proj2): implement
 
-        return;
+        get(key).remove(key);
     }
 
     // Helpers /////////////////////////////////////////////////////////////////
