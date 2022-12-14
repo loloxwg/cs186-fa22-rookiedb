@@ -205,8 +205,8 @@ public class BPlusTree {
         // TODO(proj2): Return a BPlusTreeIterator.
 
        // return Collections.emptyIterator();
-        LeafNode leaf = root.getLeftmostLeaf();
-        return new BPlusTreeIterator(leaf, leaf.scanAll());
+
+        return new BPlusTreeIterator(root.getLeftmostLeaf());
 
     }
 
@@ -241,8 +241,29 @@ public class BPlusTree {
         // TODO(proj2): Return a BPlusTreeIterator.
 
 //        return Collections.emptyIterator();
-        LeafNode rootLeaf = root.get(key);
-        return new BPlusTreeIterator(rootLeaf, rootLeaf.scanGreaterEqual(key));
+        LeafNode startNode = root.get(key);
+        return new BPlusTreeIterator(startNode, key);
+    }
+
+    /**
+     * split the root with the new root has key
+     * this helper function is used by put and buldLoad
+     *                 newRoot
+     *                /       \
+     *               /         \
+     *        originalRoot    child
+     *
+     * @param key : the key in the new root
+     * @param child : the right child of the newRoot
+     */
+    private void splitRoot(DataBox key, Long child) {
+        List<DataBox> keys = new ArrayList<>();
+        keys.add(key); // insert split_key into the new root
+        List<Long> children = new ArrayList<>();
+        children.add(root.getPage().getPageNum()); // left child : original root
+        children.add(child); // right child : new_split node
+        BPlusNode newRoot = new InnerNode(metadata, bufferManager, keys, children, lockContext);
+        updateRoot(newRoot);
     }
 
     /**
@@ -265,21 +286,12 @@ public class BPlusTree {
         // the tree's root if the old root splits.
 
 
-        Optional<Pair<DataBox, Long>> o = root.put(key, rid);
-
-        // 如果不需要分裂就直接返回
-        if (!o.isPresent()) {
-            return;
+        Optional<Pair<DataBox, Long>> splitInfo = root.put(key, rid);
+        if (splitInfo.isPresent()) {
+            // split the root
+            splitRoot(splitInfo.get().getFirst(), splitInfo.get().getSecond());
         }
-
-        // 下面的分裂逻辑
-        Pair<DataBox, Long> p = o.get();
-        List<DataBox> keys = new ArrayList<>();
-        keys.add(p.getFirst());
-        List<Long> children = new ArrayList<>();
-        children.add(root.getPage().getPageNum());
-        children.add(p.getSecond());
-        updateRoot(new InnerNode(metadata, bufferManager, keys, children, lockContext));
+        return;
     }
 
     /**
@@ -310,6 +322,15 @@ public class BPlusTree {
         // Use the provided updateRoot() helper method to change
         // the tree's root if the old root splits.
 
+        if (scanAll().hasNext()) {
+            throw new RuntimeException("buldLoad must be called in an empty tree");
+        }
+        while (data.hasNext()) {
+            Optional<Pair<DataBox, Long>> splitInfo = root.bulkLoad(data, fillFactor);
+            if (splitInfo.isPresent()) {
+                splitRoot(splitInfo.get().getFirst(), splitInfo.get().getSecond());
+            }
+        }
         return;
     }
 
@@ -332,6 +353,7 @@ public class BPlusTree {
         // TODO(proj2): implement
 
         root.remove(key);
+        return;
     }
 
     // Helpers /////////////////////////////////////////////////////////////////
@@ -444,42 +466,43 @@ public class BPlusTree {
     // Iterator ////////////////////////////////////////////////////////////////
     private class BPlusTreeIterator implements Iterator<RecordId> {
         // TODO(proj2): Add whatever fields and constructors you want here.
-        // 定义迭代器和被迭代的对象
-        private Iterator<RecordId> iter;
-        private LeafNode leaf;
+        LeafNode currNode;
+        Iterator<RecordId> currIter;
 
-        // 接收不同的scan
-        public BPlusTreeIterator() {
-            this(root.getLeftmostLeaf(), null);
-        }
-        public BPlusTreeIterator(LeafNode leaf, Iterator<RecordId> iter) {
-            this.leaf = leaf;
-            this.iter = iter == null ? leaf.scanAll() : iter;
+        BPlusTreeIterator(LeafNode node) {
+            currNode = node;
+            currIter = currNode.scanAll();
         }
 
+        BPlusTreeIterator(LeafNode node, DataBox key) {
+            currNode = node;
+            currIter = node.scanGreaterEqual(key);
+        }
         @Override
         public boolean hasNext() {
             // TODO(proj2): implement
-
-            // return false;
-            return iter != null;
+            if (currIter.hasNext()) return true;
+            else {
+                // currNode has been scanned over
+                Optional<LeafNode> opt_rightSibling = currNode.getRightSibling();
+                if (opt_rightSibling.isPresent()) {
+                    currNode = opt_rightSibling.get();
+                    currIter = currNode.scanAll();
+                    return true;
+                } else {
+                    return false;
+                }
+            }
         }
 
         @Override
         public RecordId next() {
             // TODO(proj2): implement
-
-            // throw new NoSuchElementException();
-            // 如果自身有,就直接next即可
-            if (iter.hasNext()) {
-                return iter.next();
-            }
-            // 如果自身没有了,看看兄弟结点有不有
+            if (currIter.hasNext()) return currIter.next();
             else {
-                leaf = leaf.getRightSibling().get();
-                iter = leaf.scanAll();
-                return next();
+                throw new NoSuchElementException();
             }
         }
     }
+
 }

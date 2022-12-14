@@ -81,10 +81,8 @@ class InnerNode extends BPlusNode {
     @Override
     public LeafNode get(DataBox key) {
         // TODO(proj2): implement
-        int innerKey = numLessThanEqual(key, keys);
-        return getChild(innerKey).get(key);
-
-//        return null;
+        BPlusNode child = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(numLessThanEqual(key, keys)));
+        return child.get(key);
     }
 
     // See BPlusNode.getLeftmostLeaf.
@@ -93,8 +91,35 @@ class InnerNode extends BPlusNode {
         assert(children.size() > 0);
         // TODO(proj2): implement
 
-        // return null;
-        return getChild(0).getLeftmostLeaf();
+        BPlusNode LeftmostChild = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(0));
+        return LeftmostChild.getLeftmostLeaf();
+    }
+
+    private Optional<Pair<DataBox, Long>> insert(DataBox key, Long child) {
+        int index = InnerNode.numLessThan(key, keys);
+        keys.add(index, key);
+        children.add(index + 1, child);
+
+        if (keys.size() <= metadata.getOrder() * 2) {
+            // Case 1: If inserting the pair (k, c) does NOT cause leaf to overflow, Optional.empty() is returned.
+            sync();
+            return Optional.empty();
+        } else {
+            // Case 2: If inserting the pair (k, c) does cause the node n to overflow, a pair (split_key, right_node_page_num) is returned.
+            DataBox split_key = keys.get(metadata.getOrder());
+            List<DataBox> right_keys = keys.subList(metadata.getOrder() + 1, keys.size());
+            List<Long> right_children = children.subList(metadata.getOrder() + 1, children.size());
+
+            keys = keys.subList(0, metadata.getOrder());
+            children = children.subList(0, metadata.getOrder() + 1);
+            sync();
+
+            InnerNode new_rightSibling = new InnerNode(metadata, bufferManager, right_keys,
+                    right_children,
+                    treeContext);
+
+            return Optional.of(new Pair(split_key, new_rightSibling.getPage().getPageNum()));
+        }
     }
 
     // See BPlusNode.put.
@@ -102,45 +127,16 @@ class InnerNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
         // TODO(proj2): implement
 
-        int index = numLessThanEqual(key, keys);
-        BPlusNode child = getChild(index);
-        Optional<Pair<DataBox, Long>> o = child.put(key, rid);
-
-        // 如果不需要分裂就直接跳出递归
-        if (!o.isPresent()) {
-            return Optional.empty();
+        BPlusNode child = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(numLessThanEqual(key, keys)));
+        Optional<Pair<DataBox, Long>> splitInfo = child.put(key, rid);
+        if (!splitInfo.isPresent()) {
+            // the child does not split, return Optional.empty()
+            return splitInfo;
+        } else {
+            // the child split, insert the (split_key, child_node_pageNum) into this node
+            Pair<DataBox, Long> info = splitInfo.get();
+            return insert(info.getFirst(), info.getSecond());
         }
-
-        // 下面开始分裂的逻辑
-        Pair<DataBox, Long> p = o.get();
-        keys.add(index, p.getFirst());
-        children.add(index + 1, p.getSecond());
-
-        // 获得阶数,溢出判断
-        int d = metadata.getOrder();
-        if (keys.size() <= 2 * d) {
-            sync();
-            return Optional.empty();
-        }
-
-        // 如果结点溢出则进行下面的分裂操作
-        assert(keys.size() == 2*d + 1);
-        List<DataBox> leftKeys = keys.subList(0, d);
-        DataBox middleKey = keys.get(d);
-        List<DataBox> rightKeys = keys.subList(d + 1, 2*d + 1);
-        List<Long> leftChildren = children.subList(0, d + 1);
-        List<Long> rightChildren = children.subList(d + 1, 2*d + 2);
-
-        // 创建内部结点的右结点
-        InnerNode n = new InnerNode(metadata, bufferManager, rightKeys, rightChildren, treeContext);
-
-        // 更新左结点
-        this.keys = leftKeys;
-        this.children = leftChildren;
-        sync();
-
-        // 返回右结点
-        return Optional.of(new Pair<>(middleKey, n.getPage().getPageNum()));
     }
 
     // See BPlusNode.bulkLoad.

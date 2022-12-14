@@ -472,6 +472,21 @@ public class TestBPlusTree {
 
     @Test
     @Category(SystemTests.class)
+    public void testScanAll() {
+        BPlusTree tree = getBPlusTree(Type.intType(), 1);
+        for (int i = 0; i < 40; i++) {
+            tree.put(new IntDataBox(i), new RecordId(i, (short) i));
+        }
+        Iterator<RecordId> iter = tree.scanAll();
+        int i = 0;
+        while (iter.hasNext()) {
+            assertEquals(new RecordId(i, (short) i), iter.next());
+            ++i;
+        }
+    }
+
+    @Test
+    @Category(SystemTests.class)
     public void testMaxOrder() {
         // Note that this white box test depend critically on the implementation
         // of toBytes and includes a lot of magic numbers that won't make sense
